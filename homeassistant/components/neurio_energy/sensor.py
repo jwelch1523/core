@@ -77,6 +77,10 @@ def setup_platform(
     add_entities([NeurioEnergy(data, ACTIVE_NAME, ACTIVE_TYPE, update_active)])
     # Daily power sensor
     add_entities([NeurioEnergy(data, DAILY_NAME, DAILY_TYPE, update_daily)])
+    # Active power generation
+    add_entities([NeurioEnergy(data, ACTIVE_GEN_NAME, ACTIVE_TYPE, update_active)])
+    # Daily power generation
+    add_entities([NeurioEnergy(data, DAILY_GEN_NAME, DAILY_TYPE, update_daily)])
 
 
 class NeurioData:
@@ -106,6 +110,16 @@ class NeurioData:
         """Return latest active power value."""
         return self._active_power
 
+     @property
+    def daily_gen_usage(self):
+        """Return latest daily usage value."""
+        return self._daily_gen_usage
+
+    @property
+    def active_gen_power(self):
+        """Return latest active power value."""
+        return self._active_gen_power
+    
     def get_active_power(self):
         """Return current power value."""
         try:
@@ -131,14 +145,38 @@ class NeurioData:
             _LOGGER.warning("Could not update daily power usage")
             return None
 
+        def get_active_power(self):
+        """Return current power value."""
+        try:
+            sample = self.neurio_client.get_samples_live_last(self.sensor_id)
+            self._active_power = sample["consumptionPower"]
+        except (requests.exceptions.RequestException, ValueError, KeyError):
+            _LOGGER.warning("Could not update current power usage")
+            return None
+
+    def get_daily_gen_usage(self):
+        """Return current daily power generation."""
+        kwh = 0
+        start_time = dt_util.start_of_local_day().astimezone(dt_util.UTC).isoformat()
+        end_time = dt_util.utcnow().isoformat()
+
+        _LOGGER.debug("Start: %s, End: %s", start_time, end_time)
+
+        try:
+            history = self.neurio_client.get_samples_stats(
+                self.sensor_id, start_time, "days", end_time
+            )
+        except (requests.exceptions.RequestException, ValueError, KeyError):
+            _LOGGER.warning("Could not update daily power generation")
+            return None
         for result in history:
-            kwh += result["consumptionEnergy"] / 3600000
+            kwh += result["generationEnergy"] / 3600000
 
-        self._daily_usage = round(kwh, 2)
+        self._daily_generation = round(kwh, 2)
 
 
-class NeurioEnergy(SensorEntity):
-    """Implementation of a Neurio energy sensor."""
+class NeurioEnergyGen(SensorEntity):
+    """Implementation of a Neurio energy generation sensor."""
 
     def __init__(self, data, name, sensor_type, update_call):
         """Initialize the sensor."""
@@ -183,5 +221,7 @@ class NeurioEnergy(SensorEntity):
 
         if self._sensor_type == ACTIVE_TYPE:
             self._state = self._data.active_power
+            self._state = self._data.active_gen_power
         elif self._sensor_type == DAILY_TYPE:
             self._state = self._data.daily_usage
+            self._state = self._data.daily_gen_usage
